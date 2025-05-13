@@ -7,4 +7,5 @@ password="SENHA_USUARIO"
 database="DATABASE"
 ```
 
+* Coloque o arquivo .env na pasta raiz. 
 * Execute o arquivo "build.bat" para gerar os arquivos executáveis.
