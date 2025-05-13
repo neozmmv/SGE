@@ -1,13 +1,8 @@
-# Crie um arquivo "db.py" e preencha no seguinte formato:
+# Crie um arquivo ".env" no seguinte formato:
 
 ```
-import mysql.connector
-
-def get_connection():
-    return mysql.connector.connect(
-        host="IP_SERVIDOR",
-        user="USUARIO",
-        password="SENHA",
-        database="DATABASE"
-    )
+host="IP_SERVIDOR"
+user="USUARIO_DB"
+password="SENHA_USUARIO"
+database="DATABASE"
 ```
