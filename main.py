@@ -4,7 +4,7 @@ from login import LoginFrame
 from alunos import AlunoFrame
 from monitores import MonitorFrame
 from observacoes import ObservacaoFrame
-from db import get_connection
+from db_config import get_connection
 
 class MainFrame(tk.Frame):
     def __init__(self, master, usuario=None):

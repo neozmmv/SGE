@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from db import get_connection
+from db_config import get_connection
+from werkzeug.security import generate_password_hash
 
 class MonitorFrame(tk.Frame):
     def __init__(self, master, usuario):
@@ -261,12 +262,15 @@ class MonitorFrame(tk.Frame):
                 if not senha:
                     messagebox.showerror("Erro", "A nova senha é obrigatória!")
                     return
+                
+                # Gerar hash da nova senha
+                senha_hash = generate_password_hash(senha, method='pbkdf2:sha256')
                     
                 cursor.execute("""
                     UPDATE monitores
                     SET nome = %s, cpf = %s, perfil = %s, escola_id = %s, senha = %s
                     WHERE id = %s
-                """, (nome, cpf, perfil, escola_id, senha, self.monitor_id))
+                """, (nome, cpf, perfil, escola_id, senha_hash, self.monitor_id))
             else:
                 cursor.execute("""
                     UPDATE monitores
@@ -371,16 +375,24 @@ class MonitorFrame(tk.Frame):
         
         escola_id = self.escolas_ids.get(escola_nome)
         
+        # Gerar hash da senha
+        senha_hash = generate_password_hash(senha, method='pbkdf2:sha256')
+        
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO monitores (nome, cpf, senha, perfil, escola_id)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (nome, cpf, senha, perfil, escola_id))
-        conn.commit()
-        conn.close()
-        self.new_window.destroy()
-        self.carregar_monitores()
+        try:
+            cursor.execute("""
+                INSERT INTO monitores (nome, cpf, senha, perfil, escola_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (nome, cpf, senha_hash, perfil, escola_id))
+            conn.commit()
+            messagebox.showinfo("Sucesso", "Monitor cadastrado com sucesso!")
+            self.new_window.destroy()
+            self.carregar_monitores()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao cadastrar monitor: {str(e)}")
+        finally:
+            conn.close()
 
     def voltar(self):
         from main import MainFrame

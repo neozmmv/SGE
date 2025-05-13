@@ -1,3 +1,11 @@
 db.py
 __pycache__/
 *.py[cod]
+.env
+build/
+dist/
+*.spec
+*.log
+*.log.*
+*.log.*.*
+*.log.*.*.*

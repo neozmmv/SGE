@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from db import get_connection
+from db_config import get_connection
 
 class AlunoFrame(tk.Frame):
     def __init__(self, master, usuario):
@@ -14,6 +14,14 @@ class AlunoFrame(tk.Frame):
         search_frame = tk.Frame(self)
         search_frame.pack(fill="x", padx=10, pady=5)
         
+        # Adicionar filtro de escola para administradores
+        if self.usuario.get("perfil") == "admin":
+            tk.Label(search_frame, text="Escola:").pack(side=tk.LEFT, padx=5)
+            self.escola_filter = ttk.Combobox(search_frame, state="readonly", width=30)
+            self.escola_filter.pack(side=tk.LEFT, padx=5)
+            self.carregar_escolas_filtro()
+            self.escola_filter.bind("<<ComboboxSelected>>", lambda e: self.carregar_alunos())
+        
         tk.Label(search_frame, text="Buscar por:").pack(side=tk.LEFT, padx=5)
         self.search_by = ttk.Combobox(search_frame, values=["ID", "Nome", "Número", "Turma", "Ano Letivo"], state="readonly", width=10)
         self.search_by.current(1)  # Default to Nome
@@ -26,8 +34,8 @@ class AlunoFrame(tk.Frame):
         tk.Button(search_frame, text="Limpar", command=self.limpar_busca).pack(side=tk.LEFT, padx=5)
 
         # Tabela de alunos
-        self.tree = ttk.Treeview(self, columns=("ID", "Nome", "Número", "Turma", "Ano"), show="headings")
-        for col in ("ID", "Nome", "Número", "Turma", "Ano"):
+        self.tree = ttk.Treeview(self, columns=("ID", "Nome", "Número", "Turma", "Ano", "Escola"), show="headings")
+        for col in ("ID", "Nome", "Número", "Turma", "Ano", "Escola"):
             self.tree.heading(col, text=col)
             
         # Set column widths to ensure all columns are visible
@@ -36,6 +44,7 @@ class AlunoFrame(tk.Frame):
         self.tree.column("Número", width=100, minwidth=80)
         self.tree.column("Turma", width=100, minwidth=80)
         self.tree.column("Ano", width=100, minwidth=80)
+        self.tree.column("Escola", width=150, minwidth=100)
             
         self.tree.pack(expand=True, fill="both", padx=10, pady=10)
         
@@ -66,6 +75,67 @@ class AlunoFrame(tk.Frame):
             self.tree.selection_set(item)
             self.context_menu.post(event.x_root, event.y_root)
     
+    def carregar_escolas_filtro(self):
+        """Carrega as escolas para o filtro"""
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome FROM escolas ORDER BY nome")
+        escolas = cursor.fetchall()
+        conn.close()
+        
+        self.escolas_filtro_ids = {escola[1]: escola[0] for escola in escolas}
+        self.escola_filter['values'] = ["Todas as Escolas"] + list(self.escolas_filtro_ids.keys())
+        self.escola_filter.set("Todas as Escolas")
+
+    def carregar_alunos(self):
+        """Carregar todos os alunos da escola"""
+        # Limpar a tabela existente
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Buscar alunos baseado no perfil do usuário
+        if self.usuario.get("perfil") == "admin":
+            # Verificar se há filtro de escola selecionado
+            escola_selecionada = self.escola_filter.get()
+            if escola_selecionada and escola_selecionada != "Todas as Escolas":
+                escola_id = self.escolas_filtro_ids.get(escola_selecionada)
+                query = """
+                    SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome 
+                    FROM alunos a
+                    JOIN escolas e ON a.escola_id = e.id
+                    WHERE a.escola_id = %s
+                    ORDER BY a.nome
+                """
+                cursor.execute(query, (escola_id,))
+            else:
+                # Admin vê todos os alunos de todas as escolas
+                query = """
+                    SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome 
+                    FROM alunos a
+                    JOIN escolas e ON a.escola_id = e.id
+                    ORDER BY e.nome, a.nome
+                """
+                cursor.execute(query)
+        else:
+            # Monitor vê apenas alunos da sua escola
+            query = """
+                SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome 
+                FROM alunos a
+                JOIN escolas e ON a.escola_id = e.id
+                WHERE a.escola_id = %s
+                ORDER BY a.nome
+            """
+            cursor.execute(query, (self.usuario["escola_id"],))
+
+        # Inserir os resultados na tabela
+        for aluno in cursor.fetchall():
+            self.tree.insert("", tk.END, values=aluno)
+
+        conn.close()
+
     def buscar_aluno(self):
         """Search students based on selected criteria"""
         search_text = self.search_entry.get().strip()
@@ -83,55 +153,63 @@ class AlunoFrame(tk.Frame):
         
         # Map combobox selection to database column
         column_map = {
-            "ID": "id",
-            "Nome": "nome",
-            "Número": "numero",
-            "Turma": "turma",
-            "Ano Letivo": "ano_letivo"
+            "ID": "a.id",
+            "Nome": "a.nome",
+            "Número": "a.numero",
+            "Turma": "a.turma",
+            "Ano Letivo": "a.ano_letivo"
         }
         
         db_column = column_map[search_by]
         
-        query = f"""
-            SELECT id, nome, numero, turma, ano_letivo 
-            FROM alunos 
-            WHERE {db_column} LIKE %s AND escola_id = %s
-        """
-        cursor.execute(query, (f"%{search_text}%", self.usuario["escola_id"]))
+        if self.usuario.get("perfil") == "admin":
+            # Verificar se há filtro de escola selecionado
+            escola_selecionada = self.escola_filter.get()
+            if escola_selecionada and escola_selecionada != "Todas as Escolas":
+                escola_id = self.escolas_filtro_ids.get(escola_selecionada)
+                query = f"""
+                    SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome
+                    FROM alunos a
+                    JOIN escolas e ON a.escola_id = e.id
+                    WHERE {db_column} LIKE %s AND a.escola_id = %s
+                    ORDER BY a.nome
+                """
+                cursor.execute(query, (f"%{search_text}%", escola_id))
+            else:
+                query = f"""
+                    SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome
+                    FROM alunos a
+                    JOIN escolas e ON a.escola_id = e.id
+                    WHERE {db_column} LIKE %s
+                    ORDER BY e.nome, a.nome
+                """
+                cursor.execute(query, (f"%{search_text}%",))
+        else:
+            query = f"""
+                SELECT a.id, a.nome, a.numero, a.turma, a.ano_letivo, e.nome as escola_nome
+                FROM alunos a
+                JOIN escolas e ON a.escola_id = e.id
+                WHERE {db_column} LIKE %s AND a.escola_id = %s
+                ORDER BY a.nome
+            """
+            cursor.execute(query, (f"%{search_text}%", self.usuario["escola_id"]))
             
         for aluno in cursor.fetchall():
             self.tree.insert("", tk.END, values=aluno)
             
         conn.close()
-    
+
     def limpar_busca(self):
         """Clear search and reload all students"""
         self.search_entry.delete(0, tk.END)
+        if self.usuario.get("perfil") == "admin":
+            self.escola_filter.set("Todas as Escolas")
         self.carregar_alunos()
-
-    def carregar_alunos(self):
-        """Carregar todos os alunos da escola"""
-        # Limpar a tabela existente
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        # Buscar todos os alunos da escola
-        query = "SELECT id, nome, numero, turma, ano_letivo FROM alunos WHERE escola_id = %s"
-        cursor.execute(query, (self.usuario["escola_id"],))
-
-        # Inserir os resultados na tabela
-        for aluno in cursor.fetchall():
-            self.tree.insert("", tk.END, values=aluno)
-
-        conn.close()
 
     def abrir_cadastro(self):
         self.new_window = tk.Toplevel(self)
         self.new_window.title("Cadastro de Aluno")
-        self.new_window.geometry("300x250")
+        self.new_window.geometry("300x300")
 
         labels = ["Nome", "Número", "Turma", "Ano Letivo"]
         self.entries = {}
@@ -141,7 +219,27 @@ class AlunoFrame(tk.Frame):
             entry.pack()
             self.entries[label.lower().replace(" ", "_")] = entry
 
+        # Adicionar seleção de escola para administradores
+        if self.usuario.get("perfil") == "admin":
+            tk.Label(self.new_window, text="Escola:").pack()
+            self.escola_combobox = ttk.Combobox(self.new_window, state="readonly")
+            self.escola_combobox.pack()
+            self.carregar_escolas_cadastro()
+
         tk.Button(self.new_window, text="Salvar", command=self.salvar_aluno).pack(pady=10)
+
+    def carregar_escolas_cadastro(self):
+        """Carrega as escolas para o combobox de cadastro"""
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome FROM escolas ORDER BY nome")
+        escolas = cursor.fetchall()
+        conn.close()
+        
+        self.escolas_ids = {escola[1]: escola[0] for escola in escolas}
+        self.escola_combobox['values'] = list(self.escolas_ids.keys())
+        if escolas:
+            self.escola_combobox.set(escolas[0][1])
 
     def salvar_aluno(self):
         dados = {k: v.get() for k, v in self.entries.items()}
@@ -150,6 +248,16 @@ class AlunoFrame(tk.Frame):
         if not all(dados.values()):
             messagebox.showerror("Erro", "Todos os campos são obrigatórios!")
             return
+
+        # Obter escola_id baseado no perfil do usuário
+        if self.usuario.get("perfil") == "admin":
+            escola_nome = self.escola_combobox.get()
+            if not escola_nome:
+                messagebox.showerror("Erro", "Selecione uma escola!")
+                return
+            escola_id = self.escolas_ids.get(escola_nome)
+        else:
+            escola_id = self.usuario["escola_id"]
             
         conn = get_connection()
         cursor = conn.cursor()
@@ -159,7 +267,7 @@ class AlunoFrame(tk.Frame):
                 INSERT INTO alunos (nome, numero, turma, ano_letivo, escola_id)
                 VALUES (%s, %s, %s, %s, %s)
             """, (
-                dados["nome"], dados["número"], dados["turma"], dados["ano_letivo"], self.usuario["escola_id"]
+                dados["nome"], dados["número"], dados["turma"], dados["ano_letivo"], escola_id
             ))
             conn.commit()
             messagebox.showinfo("Sucesso", "Aluno cadastrado com sucesso!")
