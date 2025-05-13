@@ -7,4 +7,4 @@ password="SENHA_USUARIO"
 database="DATABASE"
 ```
 
-# Execute o arquivo "build.bat" para gerar os arquivos executáveis.
+* Execute o arquivo "build.bat" para gerar os arquivos executáveis.
